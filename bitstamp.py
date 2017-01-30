@@ -1,4 +1,4 @@
-from trump.mercadobitcoin import barfeed
+from pyalgotrade.bitstamp import barfeed
 from pyalgotrade.bitstamp import broker
 from pyalgotrade import strategy
 from pyalgotrade.technical import ma
@@ -63,9 +63,13 @@ class Strategy(strategy.BaseStrategy):
             self.info("Exit signal. Sell at %s" % (self.__bid))
             self.__position.exitLimit(self.__bid)
 
-if __name__ == "__main__":
-    barFeed = barfeed.BarFeed()
+
+def main():
+    barFeed = barfeed.LiveTradeFeed()
     brk = broker.PaperTradingBroker(1000, barFeed)
     strat = Strategy(barFeed, brk)
 
     strat.run()
+
+if __name__ == "__main__":
+    main()

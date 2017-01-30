@@ -44,6 +44,33 @@ class Trade(object):
         """Returns True if the trade was a sell."""
         return self.__dataDict["type"] == "sell"
 
+class OrderBookUpdate(object):
+    """An order book update event."""
+
+    def __init__(self, dateTime, eventDict):
+        self.__dateTime = dateTime
+        self._data = eventDict
+
+    def getDateTime(self):
+        """Returns the :class:`datetime.datetime` when this event was received."""
+        return self.__dateTime
+
+    def getBidPrices(self):
+        """Returns a list with the top 20 bid prices."""
+        return [float(bid[0]) for bid in self._data["bids"]]
+
+    def getBidVolumes(self):
+        """Returns a list with the top 20 bid volumes."""
+        return [float(bid[1]) for bid in self._data["bids"]]
+
+    def getAskPrices(self):
+        """Returns a list with the top 20 ask prices."""
+        return [float(ask[0]) for ask in self._data["asks"]]
+
+    def getAskVolumes(self):
+        """Returns a list with the top 20 ask volumes."""
+        return [float(ask[1]) for ask in self._data["asks"]]
+
 class WebServiceClient(object):
 
     # Events
@@ -52,8 +79,10 @@ class WebServiceClient(object):
     ON_CONNECTED = 3
     ON_DISCONNECTED = 4
 
-    MB_URL = "https://www.mercadobitcoin.net/api/trades/"
-    MIN_TID = 395459
+    MB_URL_TRADES_DATE = "https://www.mercadobitcoin.net/api/trades/%s/"
+    MB_URL_TRADES = "https://www.mercadobitcoin.net/api/trades/"
+    MB_URL_ORDERBOOK = "https://www.mercadobitcoin.net/api/orderbook/"
+    MIN_TID = 398030
 
     def __init__(self):
         self.__queue = Queue.Queue()
@@ -64,19 +93,38 @@ class WebServiceClient(object):
     def onTrade(self, trade):
         self.__queue.put((WebServiceClient.ON_TRADE, trade))
 
+    def onOrderBookUpdate(self, orderBookUpdate):
+        self.__queue.put((WebServiceClient.ON_ORDER_BOOK_UPDATE, orderBookUpdate))
+
+    def _getLastTid(self):
+        # mush have a trade in 10 hours :-s
+        lastTenHours = datetime.datetime.today() - datetime.timedelta(hours=10)
+        r = requests.get(self.MB_URL_TRADES_DATE % (lastTenHours.strftime("%s")))
+        lastTrades = r.json()
+        return lastTrades[-1]['tid']
+
     def startClient(self):
-        tid = self.MIN_TID
+        # send signal of connected
+        self.__queue.put((WebServiceClient.ON_CONNECTED, None))
+        tid = self._getLastTid()
         self.__alive = True
         while self.__alive:
-            r = requests.get("%s?tid=%s" % (self.MB_URL, tid))
-            for data in r.json():
-                common.logger.info("new data in webservice.")
-                self.onTrade(Trade(get_current_datetime(), data))
-                if data['tid'] > tid:
-                    tid = data['tid']
+            r = requests.get("%s?tid=%s" % (self.MB_URL_TRADES, tid))
+            try:
+                common.logger.debug("URL: %s" % r.url)
+                for data in r.json():
+                    common.logger.debug("new trade related.")
+                    self.onTrade(Trade(get_current_datetime(), data))
+                    if data['tid'] > tid:
+                        tid = data['tid']
 
-            common.logger.info("URL: %s" % r.url)
-            time.sleep(10)
+                r = requests.get("%s" % (self.MB_URL_ORDERBOOK))
+                self.onOrderBookUpdate(OrderBookUpdate(get_current_datetime(), r.json()))
+                common.logger.debug("URL: %s" % r.url)
+                time.sleep(10)
+            except Exception, e:
+                common.logger.debug("Exception: %s" % (e))
+                time.sleep(1)
 
     def stopClient(self):
         self.__alive = False

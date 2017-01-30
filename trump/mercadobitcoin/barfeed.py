@@ -72,12 +72,39 @@ class TradeBar(bar.Bar):
     def isSell(self):
         return not self.__buy
 
+class HistoryBarFeed(barfeed.BaseBarFeed):
+    """Base class for Mercado Bitcoin based :class:`pyalgotrade.barfeed.BarFeed`.
+
+    """
+    def __init__(self, maxLen=None):
+        super(BarFeed, self).__init__(bar.Frequency.TRADE, maxLen)
+        self.__barDicts = []
+        self.registerInstrument(common.btc_symbol)
+        self.__prevTradeDateTime = None
+        self.__initializationOk = None
+        self.__stopped = False
+
+    def __getTradeDateTime(self, trade):
+        ret = trade.getDateTime()
+        if ret == self.__prevTradeDateTime:
+            ret += datetime.timedelta(microseconds=1)
+        self.__prevTradeDateTime = ret
+        return ret
+
+    def __onTrade(self, trade):
+        # Build a bar for each trade.
+        barDict = {
+            common.btc_symbol: TradeBar(self.__getTradeDateTime(trade), trade)
+            }
+        self.__barDicts.append(barDict)
+
+
 class BarFeed(barfeed.BaseBarFeed):
     """Base class for Mercado Bitcoin based :class:`pyalgotrade.barfeed.BarFeed`.
 
     """
     QUEUE_TIMEOUT = 0.01
-    
+
     def __init__(self, maxLen=None):
         super(BarFeed, self).__init__(bar.Frequency.TRADE, maxLen)
         self.__barDicts = []
@@ -141,6 +168,7 @@ class BarFeed(barfeed.BaseBarFeed):
         try:
             eventType, eventData = self.__thread.getQueue().get(True, BarFeed.QUEUE_TIMEOUT)
             if eventFilter is not None and eventType not in eventFilter:
+                common.logger.info("nothing to do")
                 return False
 
             ret = True
@@ -195,6 +223,10 @@ class BarFeed(barfeed.BaseBarFeed):
         elif not self.__initializeClient():
             self.__stopped = True
             raise Exception("Initialization failed")
+
+        while not self.__stopped:
+            self.dispatch()
+            time.sleep(3)
 
     def dispatch(self):
         # Note that we may return True even if we didn't dispatch any Bar
